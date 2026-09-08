@@ -1,0 +1,1144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Type Canopy</title>
+<meta name="description" content="A treemap and file tree of how much of iNaturalistReactNative's src/ is still plain JS vs. TypeScript, read live from GitHub.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%B3%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --page:      #f9f9f7;
+    --surface:   #fcfcfb;
+    --surface-2: #f2f1ec;
+    --ink:       #0b0b0b;
+    --ink-2:     #52514e;
+    --ink-muted: #898781;
+    --line:      #e1e0d9;
+    --border:    rgba(11,11,11,0.10);
+    --accent:    #2a78d6;
+    --accent-ink:#ffffff;
+    --good:      #0ca30c;
+    --warning:   #fab219;
+    --serious:   #ec835a;
+    --critical:  #d03b3b;
+    --shadow: 0 1px 2px rgba(11,11,11,0.05), 0 8px 24px -12px rgba(11,11,11,0.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page:      #0d0d0d;
+      --surface:   #1a1a19;
+      --surface-2: #232321;
+      --ink:       #ffffff;
+      --ink-2:     #c3c2b7;
+      --ink-muted: #8f8d86;
+      --line:      #2c2c2a;
+      --border:    rgba(255,255,255,0.10);
+      --accent:    #3987e5;
+      --accent-ink:#ffffff;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:      #0d0d0d;
+    --surface:   #1a1a19;
+    --surface-2: #232321;
+    --ink:       #ffffff;
+    --ink-2:     #c3c2b7;
+    --ink-muted: #8f8d86;
+    --line:      #2c2c2a;
+    --border:    rgba(255,255,255,0.10);
+    --accent:    #3987e5;
+    --accent-ink:#ffffff;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.6);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+  a { color: var(--accent); }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 32px 24px 56px;
+  }
+
+  header h1 {
+    margin: 0 0 6px;
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  header p.sub {
+    margin: 0;
+    max-width: 66ch;
+    color: var(--ink-2);
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+
+  .stats {
+    display: flex;
+    gap: 12px;
+    margin: 22px 0 18px;
+    flex-wrap: wrap;
+  }
+  .stat {
+    flex: 1 1 160px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .stat .n {
+    font-family: "IBM Plex Mono", monospace;
+    font-weight: 600;
+    font-size: 26px;
+    line-height: 1.1;
+  }
+  .stat .n small { font-size: 15px; font-weight: 500; color: var(--ink-2); }
+  .stat .l {
+    margin-top: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  .stat.ts .n { color: var(--good); }
+  .stat.js .n { color: var(--critical); }
+
+  .refbar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 22px;
+    align-items: center;
+    margin-bottom: 22px;
+  }
+  .reffield label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    margin-bottom: 6px;
+  }
+  .refinputrow { display: flex; gap: 8px; }
+  .refinputrow input {
+    font: inherit;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--ink);
+    width: 230px;
+  }
+  .refinputrow input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .refinputrow button {
+    appearance: none;
+    border: none;
+    border-radius: 8px;
+    padding: 7px 14px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #refLoad { background: var(--accent); color: var(--accent-ink); }
+  #refLoad:disabled { opacity: 0.6; cursor: default; }
+  #refReset {
+    background: var(--surface-2);
+    color: var(--ink-2);
+    border: 1px solid var(--border);
+  }
+  .refstatus { font-size: 12px; color: var(--ink-2); flex: 1 1 280px; }
+  .referror {
+    flex-basis: 100%;
+    color: var(--critical);
+    font-size: 12.5px;
+    margin: 0;
+  }
+  .referror[hidden] { display: none; }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin: 0 0 14px;
+  }
+  .segmented {
+    display: inline-flex;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .segmented button {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--ink-2);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 13px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .segmented button.active {
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: var(--shadow);
+  }
+  .search {
+    position: relative;
+    flex: 1 1 220px;
+    max-width: 320px;
+  }
+  .search input {
+    width: 100%;
+    font: inherit;
+    font-size: 13px;
+    padding: 7px 11px 7px 30px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+  }
+  .search input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .search svg {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
+    stroke: var(--ink-muted);
+  }
+
+  .legend {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--ink-muted);
+  }
+  .legend .bar {
+    width: 130px;
+    height: 8px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--good), var(--warning), var(--serious), var(--critical));
+  }
+
+  .breadcrumb {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    font-size: 12.5px;
+    margin-bottom: 8px;
+    min-height: 20px;
+  }
+  .breadcrumb button {
+    appearance: none;
+    border: none;
+    background: none;
+    font: inherit;
+    font-family: "IBM Plex Mono", monospace;
+    color: var(--ink-2);
+    cursor: pointer;
+    padding: 2px 3px;
+    border-radius: 4px;
+  }
+  .breadcrumb button:hover { color: var(--accent); background: var(--surface-2); }
+  .breadcrumb .sep { color: var(--ink-muted); }
+  .breadcrumb .current { font-weight: 600; color: var(--ink); font-family: "IBM Plex Mono", monospace; padding: 2px 3px; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 18px;
+    align-items: start;
+  }
+  .layout.tree-mode { grid-template-columns: 1fr; }
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+
+  #stage {
+    position: relative;
+    height: 500px;
+    background: var(--line);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .loading-msg {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink-muted);
+    font-size: 13px;
+  }
+  .cell {
+    position: absolute;
+    overflow: hidden;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 6px 8px;
+    transition: opacity 0.12s ease;
+  }
+  .cell.dir { cursor: pointer; }
+  .cell.file { cursor: default; }
+  .cell.dim { opacity: 0.16; }
+  .cell .name {
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.25;
+    color: rgba(0,0,0,0.82);
+    text-shadow: 0 1px 1px rgba(255,255,255,0.15);
+    overflow-wrap: anywhere;
+  }
+  .cell.light-text .name { color: rgba(255,255,255,0.95); text-shadow: 0 1px 2px rgba(0,0,0,0.25); }
+  .cell .meta {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    color: rgba(0,0,0,0.65);
+  }
+  .cell.light-text .meta { color: rgba(255,255,255,0.85); }
+
+  .tooltip {
+    position: fixed;
+    z-index: 40;
+    pointer-events: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    max-width: 280px;
+    opacity: 0;
+    transform: translate(-9999px, -9999px);
+  }
+  .tooltip .p {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    word-break: break-all;
+    margin-bottom: 4px;
+  }
+  .tooltip .s { color: var(--ink-2); }
+  .tooltip .s b { color: var(--good); font-weight: 600; }
+  .tooltip .s i { color: var(--critical); font-style: normal; font-weight: 600; }
+
+  aside {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  aside h2 {
+    margin: 0 0 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  aside p.hint { margin: 0 0 12px; font-size: 12px; color: var(--ink-2); }
+  .board-row {
+    display: block;
+    width: 100%;
+    text-align: left;
+    appearance: none;
+    background: none;
+    border: none;
+    font: inherit;
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
+    cursor: pointer;
+  }
+  .board-row:first-of-type { border-top: none; }
+  .board-row:hover .path { color: var(--accent); }
+  .board-row .path {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+  }
+  .board-row .minibar {
+    display: flex;
+    height: 5px;
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 5px 0 4px;
+    background: var(--line);
+  }
+  .board-row .count {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    color: var(--ink-muted);
+  }
+  .board-row .count i { color: var(--critical); font-style: normal; }
+
+  #treeview {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 10px;
+    max-height: 640px;
+    overflow-y: auto;
+    position: relative;
+  }
+  .tree-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 4px 4px 8px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 4px;
+  }
+  .tree-toolbar button {
+    appearance: none;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+    padding: 2px;
+  }
+  ul.tree { list-style: none; margin: 0; padding: 0; }
+  ul.tree ul.tree { margin-left: 18px; }
+  li.row { border-radius: 6px; }
+  .rowline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 6px;
+  }
+  .rowline:hover { background: var(--surface-2); }
+  .toggle {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink-muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 10px;
+    padding: 0;
+  }
+  .toggle.spacer { visibility: hidden; cursor: default; }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .rowline .label {
+    font-size: 12.5px;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rowline .label.dirname { font-weight: 600; cursor: pointer; }
+  .rowline .label.filename { font-family: "IBM Plex Mono", monospace; color: var(--ink-2); }
+  .heatbar {
+    flex: none;
+    width: 90px;
+    height: 6px;
+    border-radius: 3px;
+    overflow: hidden;
+    display: flex;
+    background: var(--line);
+  }
+  .rowline .counts {
+    flex: none;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    color: var(--ink-muted);
+    width: 108px;
+    text-align: right;
+  }
+  li.row.hidden { display: none; }
+
+  footer {
+    margin-top: 28px;
+    font-size: 11.5px;
+    color: var(--ink-muted);
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+    line-height: 1.6;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cell, .tooltip { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Type Canopy</h1>
+    <p class="sub">A map of where the iNaturalist RN client still touches ground in plain JavaScript &mdash; every source file under <span class="mono">src/</span>, sized by file count and colored by how much of each directory has grown into TypeScript. Reads straight from the GitHub API, no build step required.</p>
+  </header>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="n" id="statTotal">&nbsp;</div>
+      <div class="l">Source files</div>
+    </div>
+    <div class="stat ts">
+      <div class="n" id="statTs">&nbsp;</div>
+      <div class="l">TypeScript</div>
+    </div>
+    <div class="stat js">
+      <div class="n" id="statJs">&nbsp;</div>
+      <div class="l">Plain JS remaining</div>
+    </div>
+  </div>
+
+  <div class="refbar">
+    <div class="reffield">
+      <label for="refInput">Evaluate a ref</label>
+      <div class="refinputrow">
+        <input id="refInput" type="text" placeholder="branch, tag, or commit SHA" autocomplete="off" spellcheck="false">
+        <button id="refLoad" type="button">Load</button>
+        <button id="refReset" type="button" hidden>Reset to cached main</button>
+      </div>
+    </div>
+    <div class="refstatus" id="refStatus" aria-live="polite"></div>
+    <p class="referror" id="refError" role="alert" hidden></p>
+  </div>
+
+  <div class="controls">
+    <div class="segmented" role="tablist" aria-label="View">
+      <button id="btnMap" class="active">Treemap</button>
+      <button id="btnTree">File tree</button>
+    </div>
+    <div class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="searchInput" type="text" placeholder="Filter by path, e.g. Camera or .js" autocomplete="off">
+    </div>
+    <div class="legend">
+      <span>Typed</span>
+      <span class="bar"></span>
+      <span>Untyped</span>
+    </div>
+  </div>
+
+  <div id="mapPane">
+    <div class="breadcrumb" id="breadcrumb"></div>
+    <div class="layout" id="layout">
+      <div id="stage"><div class="loading-msg">Loading file tree…</div></div>
+      <aside id="sidebar">
+        <h2>Densest legacy pockets</h2>
+        <p class="hint">Directories with the most remaining <span class="mono">.js</span>/<span class="mono">.jsx</span> files. Click to zoom in.</p>
+        <div id="board"></div>
+      </aside>
+    </div>
+  </div>
+
+  <div id="treePane" style="display:none;">
+    <div class="tree-toolbar">
+      <button id="expandAll">Expand all</button>
+      <button id="collapseAll">Collapse all</button>
+    </div>
+    <div id="treeview"><div class="loading-msg">Loading file tree…</div></div>
+  </div>
+
+  <footer>
+    Excludes <span class="mono">__tests__</span>, <span class="mono">__mocks__</span>, <span class="mono">l10n</span>, and <span class="mono">.d.ts</span> files.
+    The cached view is regenerated daily by a scheduled GitHub Action; pasting a ref fetches live from the GitHub API (subject to its public rate limit of 60 requests/hour without auth).
+    <br>Source: <a href="https://github.com/FLGMwt/inat-rn-ts-canopy" target="_blank" rel="noopener">FLGMwt/inat-rn-ts-canopy</a>.
+  </footer>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+  const REPO = "inaturalist/iNaturalistReactNative";
+  const SRC_PREFIX = "src/";
+  const EXT_RE = /\.(js|jsx|ts|tsx)$/;
+  const SKIP_DIR_RE = /(^|\/)(__tests__|__mocks__|l10n|node_modules)(\/|$)/;
+  const SKIP_FILE_RE = /\.(test|spec)\.|\.d\.ts$/;
+
+  const STOPS = [
+    [0.00, [0x0c, 0xa3, 0x0c]],
+    [0.33, [0xfa, 0xb2, 0x19]],
+    [0.66, [0xec, 0x83, 0x5a]],
+    [1.00, [0xd0, 0x3b, 0x3b]],
+  ];
+  function colorForRatio(r) {
+    r = Math.max(0, Math.min(1, r));
+    for (let i = 0; i < STOPS.length - 1; i++) {
+      const [t0, c0] = STOPS[i];
+      const [t1, c1] = STOPS[i + 1];
+      if (r >= t0 && r <= t1) {
+        const t = t1 === t0 ? 0 : (r - t0) / (t1 - t0);
+        const rgb = c0.map((v, idx) => Math.round(v + (c1[idx] - v) * t));
+        return { hex: `rgb(${rgb.join(",")})`, rgb };
+      }
+    }
+    return { hex: "rgb(211,59,59)", rgb: [211, 59, 59] };
+  }
+  function isLight(rgb) {
+    const [r, g, b] = rgb;
+    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return lum > 0.6;
+  }
+
+  function counts(node) {
+    if (node.type === "file") {
+      return node.isTs ? { ts: 1, js: 0 } : { ts: 0, js: 1 };
+    }
+    return { ts: node.tsCount, js: node.jsCount };
+  }
+  function ratioOf(node) {
+    const { ts, js } = counts(node);
+    const total = ts + js;
+    return total === 0 ? 0 : js / total;
+  }
+  function valueOf(node) {
+    const { ts, js } = counts(node);
+    return Math.max(ts + js, node.type === "file" ? 1 : 0.001);
+  }
+
+  // ---------------------------------------------------------------------
+  // Fetching: a cached snapshot by default, or a live ref from GitHub.
+  // ---------------------------------------------------------------------
+  async function ghFetch(url) {
+    const res = await fetch(url, { headers: { Accept: "application/vnd.github+json" } });
+    if (!res.ok) {
+      if (res.status === 403) throw new Error("GitHub API rate limit reached — try again in a bit.");
+      if (res.status === 404 || res.status === 422) throw new Error("Couldn't find that ref. Check the branch, tag, or commit SHA.");
+      throw new Error(`GitHub API error (${res.status}).`);
+    }
+    return res.json();
+  }
+
+  function buildTreeFromFiles(rootName, files) {
+    function makeNode(name) { return { name, children: {}, files: [] }; }
+    const root = makeNode(rootName);
+    for (const f of files) {
+      const parts = f.path.split("/");
+      let node = root;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const dirName = parts[i];
+        if (!node.children[dirName]) node.children[dirName] = makeNode(dirName);
+        node = node.children[dirName];
+      }
+      node.files.push({ name: parts[parts.length - 1], ext: f.ext, isTs: f.isTs, size: f.size });
+    }
+    function finalize(node) {
+      const childArr = Object.values(node.children).map(finalize);
+      const fileNodes = node.files.map(f => ({ name: f.name, type: "file", isTs: f.isTs, ext: f.ext, size: f.size }));
+      let jsCount = node.files.filter(f => !f.isTs).length;
+      let tsCount = node.files.filter(f => f.isTs).length;
+      let totalSize = node.files.reduce((a, f) => a + f.size, 0);
+      for (const c of childArr) { jsCount += c.jsCount; tsCount += c.tsCount; totalSize += c.totalSize; }
+      return { name: node.name, type: "dir", children: [...childArr, ...fileNodes], jsCount, tsCount, totalSize };
+    }
+    return finalize(root);
+  }
+
+  async function fetchLiveTree(ref) {
+    const commit = await ghFetch(`https://api.github.com/repos/${REPO}/commits/${encodeURIComponent(ref)}`);
+    const sha = commit.sha;
+    const treeData = await ghFetch(`https://api.github.com/repos/${REPO}/git/trees/${sha}?recursive=1`);
+    const files = treeData.tree
+      .filter(item => item.type === "blob" && item.path.startsWith(SRC_PREFIX))
+      .filter(item => !SKIP_DIR_RE.test(item.path))
+      .filter(item => !SKIP_FILE_RE.test(item.path))
+      .map(item => {
+        const m = item.path.match(EXT_RE);
+        if (!m) return null;
+        const ext = "." + m[1];
+        return { path: item.path.slice(SRC_PREFIX.length), ext, isTs: ext === ".ts" || ext === ".tsx", size: item.size || 0 };
+      })
+      .filter(Boolean);
+    if (!files.length) throw new Error("No matching source files under src/ for that ref.");
+    return { repo: REPO, ref, sha, generatedAt: new Date().toISOString(), tree: buildTreeFromFiles("src", files) };
+  }
+
+  async function fetchCachedDefault() {
+    const res = await fetch("./data/cache.json", { cache: "no-cache" });
+    if (!res.ok) throw new Error("Couldn't load the cached snapshot.");
+    return res.json();
+  }
+
+  // ---------------------------------------------------------------------
+  // Rendering state
+  // ---------------------------------------------------------------------
+  let TREE_DATA = null;
+  let allDirs = [];
+  let stack = [];
+  let query = "";
+  let matchSet = null;
+  const expanded = new Set();
+  let currentMeta = null;
+  let isLive = false;
+
+  function annotateTree(root) {
+    allDirs = [];
+    (function annotate(node, p, parent) {
+      node.path = p;
+      node.parent = parent || null;
+      const c = counts(node);
+      node.jsN = c.js;
+      node.tsN = c.ts;
+      node.ratio = ratioOf(node);
+      node.value = valueOf(node);
+      if (node.type === "dir") allDirs.push(node);
+      if (node.children) node.children.forEach(child => annotate(child, p + "/" + child.name, node));
+    })(root, root.name, null);
+  }
+
+  function renderStats() {
+    const total = TREE_DATA.jsCount + TREE_DATA.tsCount;
+    const tsPct = ((TREE_DATA.tsCount / total) * 100).toFixed(1);
+    const jsPct = ((TREE_DATA.jsCount / total) * 100).toFixed(1);
+    document.getElementById("statTotal").textContent = total.toLocaleString();
+    document.getElementById("statTs").innerHTML = TREE_DATA.tsCount.toLocaleString() + " <small>(" + tsPct + "%)</small>";
+    document.getElementById("statJs").innerHTML = TREE_DATA.jsCount.toLocaleString() + " <small>(" + jsPct + "%)</small>";
+  }
+
+  function renderRefStatus() {
+    const el = document.getElementById("refStatus");
+    el.textContent = "";
+    if (!currentMeta) return;
+    const shaShort = currentMeta.sha.slice(0, 7);
+    const link = document.createElement("a");
+    link.href = `https://github.com/${currentMeta.repo}/tree/${currentMeta.sha}`;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = currentMeta.ref;
+    const shaEl = document.createElement("span");
+    shaEl.className = "mono";
+    shaEl.textContent = shaShort;
+
+    el.append(isLive ? "Live from GitHub · " : "Cached snapshot · ", link, " @ ", shaEl);
+    if (isLive) {
+      el.append(" · fetched just now");
+    } else {
+      const d = new Date(currentMeta.generatedAt);
+      el.append(" · refreshed " + d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }));
+    }
+  }
+
+  function recomputeMatches() {
+    if (!query) { matchSet = null; return; }
+    const q = query.toLowerCase();
+    matchSet = new Set();
+    (function walk(node) {
+      let self = node.path.toLowerCase().includes(q);
+      let childMatch = false;
+      if (node.children) node.children.forEach(c => { if (walk(c)) childMatch = true; });
+      const m = self || childMatch;
+      if (m) matchSet.add(node);
+      return m;
+    })(TREE_DATA);
+  }
+
+  // ---- Treemap view ----
+  const stage = document.getElementById("stage");
+  const tooltip = document.getElementById("tooltip");
+
+  function renderBreadcrumb() {
+    const el = document.getElementById("breadcrumb");
+    el.innerHTML = "";
+    stack.forEach((node, i) => {
+      if (i > 0) {
+        const sep = document.createElement("span");
+        sep.className = "sep";
+        sep.textContent = "/";
+        el.appendChild(sep);
+      }
+      if (i === stack.length - 1) {
+        const cur = document.createElement("span");
+        cur.className = "current";
+        cur.textContent = node.name;
+        el.appendChild(cur);
+      } else {
+        const btn = document.createElement("button");
+        btn.textContent = node.name;
+        btn.addEventListener("click", () => { stack = stack.slice(0, i + 1); renderStage(); renderBreadcrumb(); });
+        el.appendChild(btn);
+      }
+    });
+  }
+
+  function showTooltip(node, evt) {
+    const { ts, js } = counts(node);
+    const total = ts + js;
+    const pct = total ? Math.round((ts / total) * 100) : 0;
+    tooltip.innerHTML = '<div class="p">' + node.path + '</div>' +
+      '<div class="s"><b>' + ts + ' TS</b> &middot; <i>' + js + ' JS</i>' +
+      (node.type === "dir" ? ' &middot; ' + pct + '% typed' : '') + '</div>';
+    tooltip.style.opacity = "1";
+    moveTooltip(evt);
+  }
+  function moveTooltip(evt) {
+    const pad = 14;
+    let x = evt.clientX + pad;
+    let y = evt.clientY + pad;
+    const rect = tooltip.getBoundingClientRect();
+    if (x + rect.width > window.innerWidth - 8) x = evt.clientX - rect.width - pad;
+    if (y + rect.height > window.innerHeight - 8) y = evt.clientY - rect.height - pad;
+    tooltip.style.transform = `translate(${x}px, ${y}px)`;
+  }
+  function hideTooltip() {
+    tooltip.style.opacity = "0";
+    tooltip.style.transform = "translate(-9999px, -9999px)";
+  }
+
+  function renderStage() {
+    if (!TREE_DATA) return;
+    const node = stack[stack.length - 1];
+    const children = node.children || [];
+    stage.innerHTML = "";
+    if (!children.length) return;
+
+    const w = stage.clientWidth || 800;
+    const h = stage.clientHeight || 500;
+    const root = d3.hierarchy({ children }).sum(d => d.value || 0.001).sort((a, b) => b.value - a.value);
+    d3.treemap().tile(d3.treemapSquarify).size([w, h]).paddingInner(2).round(true)(root);
+
+    root.children.forEach(leaf => {
+      const data = leaf.data;
+      const cw = leaf.x1 - leaf.x0;
+      const ch = leaf.y1 - leaf.y0;
+      const div = document.createElement("div");
+      div.className = "cell " + (data.type === "dir" ? "dir" : "file");
+      div.style.left = leaf.x0 + "px";
+      div.style.top = leaf.y0 + "px";
+      div.style.width = cw + "px";
+      div.style.height = ch + "px";
+      const color = colorForRatio(data.ratio);
+      div.style.background = color.hex;
+      if (!isLight(color.rgb)) div.classList.add("light-text");
+      if (matchSet && !matchSet.has(data)) div.classList.add("dim");
+
+      if (cw > 54 && ch > 26) {
+        const name = document.createElement("div");
+        name.className = "name";
+        name.textContent = data.name;
+        div.appendChild(name);
+        if (ch > 40) {
+          const meta = document.createElement("div");
+          meta.className = "meta";
+          meta.textContent = data.type === "dir" ? data.tsN + " ts · " + data.jsN + " js" : data.ext;
+          div.appendChild(meta);
+        }
+      }
+
+      div.addEventListener("mouseenter", e => showTooltip(data, e));
+      div.addEventListener("mousemove", moveTooltip);
+      div.addEventListener("mouseleave", hideTooltip);
+      div.addEventListener("click", () => {
+        if (data.type === "dir") { stack.push(data); renderStage(); renderBreadcrumb(); }
+      });
+      stage.appendChild(div);
+    });
+  }
+
+  // ---- Leaderboard ----
+  function renderBoard() {
+    const board = document.getElementById("board");
+    const candidates = allDirs
+      .filter(d => d !== TREE_DATA && d.jsN > 0 && (d.jsN + d.tsN) >= 2)
+      .sort((a, b) => b.jsN - a.jsN)
+      .slice(0, 8);
+    board.innerHTML = "";
+    if (!candidates.length) {
+      board.innerHTML = '<p class="hint">No directories with multiple legacy JS files.</p>';
+      return;
+    }
+    candidates.forEach(node => {
+      const btn = document.createElement("button");
+      btn.className = "board-row";
+      const tsPct = Math.round((node.tsN / (node.tsN + node.jsN)) * 100);
+      btn.innerHTML =
+        '<span class="path">' + node.path + '</span>' +
+        '<span class="minibar"><span style="width:' + tsPct + '%;background:' + colorForRatio(0).hex + '"></span>' +
+        '<span style="width:' + (100 - tsPct) + '%;background:' + colorForRatio(1).hex + '"></span></span>' +
+        '<span class="count"><i>' + node.jsN + ' js</i> · ' + (node.tsN + node.jsN) + ' files</span>';
+      btn.addEventListener("click", () => {
+        const chain = [];
+        let n = node;
+        while (n) { chain.unshift(n); n = n.parent; }
+        stack = chain;
+        renderStage();
+        renderBreadcrumb();
+      });
+      board.appendChild(btn);
+    });
+  }
+
+  // ---- Tree view ----
+  function buildRow(node, depth) {
+    const li = document.createElement("li");
+    li.className = "row";
+    const isDir = node.type === "dir";
+    const hasKids = isDir && node.children && node.children.length;
+    const open = query ? (matchSet ? matchSet.has(node) : false) : expanded.has(node.path);
+
+    if (query && matchSet && !matchSet.has(node)) {
+      li.classList.add("hidden");
+      return li;
+    }
+
+    const line = document.createElement("div");
+    line.className = "rowline";
+    line.style.paddingLeft = (depth * 14) + "px";
+
+    const toggle = document.createElement("button");
+    toggle.className = "toggle" + (hasKids ? "" : " spacer");
+    toggle.textContent = hasKids ? (open ? "▾" : "▸") : "";
+    toggle.disabled = !hasKids;
+    if (hasKids) {
+      toggle.addEventListener("click", () => {
+        if (expanded.has(node.path)) expanded.delete(node.path); else expanded.add(node.path);
+        renderTree();
+      });
+    }
+    line.appendChild(toggle);
+
+    if (isDir) {
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = (node.tsN + node.jsN) ? colorForRatio(node.ratio).hex : "var(--line)";
+      line.appendChild(dot);
+
+      const label = document.createElement("span");
+      label.className = "label dirname";
+      label.textContent = node.name + "/";
+      if (hasKids) label.addEventListener("click", () => {
+        if (expanded.has(node.path)) expanded.delete(node.path); else expanded.add(node.path);
+        renderTree();
+      });
+      line.appendChild(label);
+
+      const bar = document.createElement("span");
+      bar.className = "heatbar";
+      const totalF = node.tsN + node.jsN;
+      if (totalF > 0) {
+        const tsPct = (node.tsN / totalF) * 100;
+        bar.innerHTML = '<span style="width:' + tsPct + '%;background:' + colorForRatio(0).hex + '"></span>' +
+          '<span style="width:' + (100 - tsPct) + '%;background:' + colorForRatio(1).hex + '"></span>';
+      }
+      line.appendChild(bar);
+
+      const cnt = document.createElement("span");
+      cnt.className = "counts";
+      cnt.textContent = node.tsN + " ts · " + node.jsN + " js";
+      line.appendChild(cnt);
+    } else {
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = colorForRatio(node.ratio).hex;
+      line.appendChild(dot);
+
+      const label = document.createElement("span");
+      label.className = "label filename";
+      label.textContent = node.name;
+      line.appendChild(label);
+
+      const spacerBar = document.createElement("span");
+      spacerBar.className = "heatbar";
+      spacerBar.style.background = "transparent";
+      line.appendChild(spacerBar);
+
+      const cnt = document.createElement("span");
+      cnt.className = "counts";
+      cnt.textContent = node.ext;
+      line.appendChild(cnt);
+    }
+
+    li.appendChild(line);
+
+    if (hasKids && open) {
+      const ul = document.createElement("ul");
+      ul.className = "tree";
+      node.children
+        .slice()
+        .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "dir" ? -1 : 1))
+        .forEach(child => ul.appendChild(buildRow(child, depth + 1)));
+      li.appendChild(ul);
+    }
+    return li;
+  }
+
+  function renderTree() {
+    if (!TREE_DATA) return;
+    const container = document.getElementById("treeview");
+    container.innerHTML = "";
+    const ul = document.createElement("ul");
+    ul.className = "tree";
+    ul.appendChild(buildRow(TREE_DATA, 0));
+    container.appendChild(ul);
+  }
+
+  // ---- View switching ----
+  const btnMap = document.getElementById("btnMap");
+  const btnTree = document.getElementById("btnTree");
+  const mapPane = document.getElementById("mapPane");
+  const treePane = document.getElementById("treePane");
+
+  function setView(view) {
+    btnMap.classList.toggle("active", view === "map");
+    btnTree.classList.toggle("active", view === "tree");
+    mapPane.style.display = view === "map" ? "" : "none";
+    treePane.style.display = view === "tree" ? "" : "none";
+    if (view === "map") renderStage();
+    else renderTree();
+  }
+  btnMap.addEventListener("click", () => setView("map"));
+  btnTree.addEventListener("click", () => setView("tree"));
+
+  document.getElementById("expandAll").addEventListener("click", () => {
+    allDirs.forEach(d => expanded.add(d.path));
+    renderTree();
+  });
+  document.getElementById("collapseAll").addEventListener("click", () => {
+    expanded.clear();
+    expanded.add(TREE_DATA.path);
+    renderTree();
+  });
+
+  let searchTimer = null;
+  document.getElementById("searchInput").addEventListener("input", e => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      query = e.target.value.trim();
+      recomputeMatches();
+      renderStage();
+      renderTree();
+    }, 120);
+  });
+
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(renderStage, 100);
+  });
+
+  // ---------------------------------------------------------------------
+  // Load orchestration
+  // ---------------------------------------------------------------------
+  function applyPayload(payload, live) {
+    currentMeta = { repo: payload.repo, ref: payload.ref, sha: payload.sha, generatedAt: payload.generatedAt };
+    isLive = live;
+    document.getElementById("refReset").hidden = !live;
+
+    annotateTree(payload.tree);
+    TREE_DATA = payload.tree;
+    query = "";
+    matchSet = null;
+    document.getElementById("searchInput").value = "";
+
+    expanded.clear();
+    expanded.add(TREE_DATA.path);
+    TREE_DATA.children.forEach(c => { if (c.type === "dir") expanded.add(c.path); });
+
+    stack = [TREE_DATA];
+
+    renderStats();
+    renderRefStatus();
+    renderBreadcrumb();
+    renderStage();
+    renderBoard();
+    renderTree();
+  }
+
+  function setRefLoading(loading) {
+    document.getElementById("refLoad").disabled = loading;
+    document.getElementById("refInput").disabled = loading;
+    document.getElementById("refLoad").textContent = loading ? "Loading…" : "Load";
+  }
+  function showRefError(msg) {
+    const el = document.getElementById("refError");
+    el.textContent = msg;
+    el.hidden = false;
+  }
+  function clearRefError() {
+    const el = document.getElementById("refError");
+    el.hidden = true;
+    el.textContent = "";
+  }
+
+  async function loadRefFromInput() {
+    const ref = document.getElementById("refInput").value.trim();
+    if (!ref) return;
+    setRefLoading(true);
+    clearRefError();
+    try {
+      const payload = await fetchLiveTree(ref);
+      applyPayload(payload, true);
+    } catch (err) {
+      showRefError(err.message);
+    } finally {
+      setRefLoading(false);
+    }
+  }
+  document.getElementById("refLoad").addEventListener("click", loadRefFromInput);
+  document.getElementById("refInput").addEventListener("keydown", e => { if (e.key === "Enter") loadRefFromInput(); });
+  document.getElementById("refReset").addEventListener("click", () => {
+    clearRefError();
+    document.getElementById("refInput").value = "";
+    init();
+  });
+
+  async function init() {
+    try {
+      const payload = await fetchCachedDefault();
+      applyPayload(payload, false);
+    } catch (err) {
+      showRefError("Couldn't load the cached snapshot (" + err.message + "). Paste a ref below to fetch live instead.");
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>
