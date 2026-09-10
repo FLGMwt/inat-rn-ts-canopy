@@ -1303,6 +1303,7 @@
           applyPayload(livePayload, true, requestedRef.paramKey);
           syncUrlForRef(requestedRef.ref, requestedRef.paramKey);
         } catch (err) {
+          document.getElementById("refInput").value = "";
           syncUrlForFailedRef(requestedRef.ref, requestedRef.paramKey);
           showRefError(`Couldn't load "${requestedRef.ref}" (${err.message}). Showing the cached snapshot instead.`);
         } finally {
