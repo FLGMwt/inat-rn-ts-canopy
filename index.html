@@ -1308,6 +1308,9 @@
           syncUrlForFailedRef(requestedRef.ref, requestedRef.paramKey);
           showRefError(`Couldn't load "${requestedRef.ref}" (${liveErr.message}). Showing the cached snapshot instead.`);
         } catch (cacheErr) {
+          document.getElementById("refInput").value = "";
+          document.getElementById("refReset").hidden = true;
+          syncUrlForFailedRef("", "");
           showRefError("Couldn't load the requested ref (" + liveErr.message + ") or the cached snapshot (" + cacheErr.message + ").");
         }
       } finally {
