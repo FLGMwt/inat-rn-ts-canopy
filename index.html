@@ -692,7 +692,7 @@
 
   function pruneLocalCache(cache) {
     const entries = Object.entries(cache.payloads || {})
-      .filter(([, entry]) => entry && entry.payload && entry.cachedAt)
+      .filter(([, entry]) => entry && entry.payload && entry.cachedAt && (nowMs() - entry.cachedAt) <= IMMUTABLE_TTL_MS)
       .sort((a, b) => b[1].cachedAt - a[1].cachedAt);
     cache.payloads = Object.fromEntries(entries.slice(0, MAX_LOCAL_PAYLOADS));
     const validShas = new Set(Object.keys(cache.payloads));
