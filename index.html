@@ -749,20 +749,22 @@
   function readRequestedRefFromUrl() {
     const params = new URLSearchParams(window.location.search);
     const sha = (params.get("sha") || "").trim();
-    if (sha) return sha;
+    if (sha) return { ref: sha, paramKey: "sha" };
     const branch = (params.get("branch") || "").trim();
-    if (branch) return branch;
+    if (branch) return { ref: branch, paramKey: "branch" };
     const ref = (params.get("ref") || "").trim();
-    return ref || "";
+    if (ref) return { ref, paramKey: "ref" };
+    return null;
   }
 
-  function syncUrlForRef(ref) {
+  function syncUrlForRef(ref, paramKey) {
     const url = new URL(window.location.href);
     url.searchParams.delete("sha");
     url.searchParams.delete("branch");
     url.searchParams.delete("ref");
     if (ref) {
-      url.searchParams.set(isFullSha(ref) ? "sha" : "ref", ref);
+      const key = isFullSha(ref) ? "sha" : (paramKey === "branch" ? "branch" : "ref");
+      url.searchParams.set(key, ref);
     }
     history.replaceState(null, "", url);
   }
@@ -838,6 +840,7 @@
   let currentMeta = null;
   let isLive = false;
   let liveSource = "default";
+  let currentRefParamKey = "";
 
   function annotateTree(root) {
     allDirs = [];
@@ -1186,10 +1189,11 @@
   // ---------------------------------------------------------------------
   // Load orchestration
   // ---------------------------------------------------------------------
-  function applyPayload(payload, live) {
+  function applyPayload(payload, live, paramKey) {
     currentMeta = { repo: payload.repo, ref: payload.ref, sha: payload.sha, generatedAt: payload.generatedAt };
     isLive = live;
     liveSource = live ? (payload._source || "github") : "default";
+    currentRefParamKey = live ? (paramKey || (isFullSha(payload.ref) ? "sha" : "ref")) : "";
     document.getElementById("refReset").hidden = !live;
 
     annotateTree(payload.tree);
@@ -1231,12 +1235,15 @@
   async function loadRefFromInput() {
     const ref = document.getElementById("refInput").value.trim();
     if (!ref) return;
+    const paramKey = isFullSha(ref)
+      ? "sha"
+      : (isLive && currentMeta && currentMeta.ref === ref && currentRefParamKey === "branch" ? "branch" : "ref");
     setRefLoading(true);
     clearRefError();
     try {
       const payload = await fetchLiveTree(ref);
-      applyPayload(payload, true);
-      syncUrlForRef(ref);
+      applyPayload(payload, true, paramKey);
+      syncUrlForRef(ref, paramKey);
     } catch (err) {
       showRefError(err.message);
     } finally {
@@ -1248,7 +1255,7 @@
   document.getElementById("refReset").addEventListener("click", () => {
     clearRefError();
     document.getElementById("refInput").value = "";
-    syncUrlForRef("");
+    syncUrlForRef("", "");
     init();
   });
 
@@ -1258,13 +1265,14 @@
       applyPayload(payload, false);
       const requestedRef = readRequestedRefFromUrl();
       if (requestedRef) {
-        document.getElementById("refInput").value = requestedRef;
+        document.getElementById("refInput").value = requestedRef.ref;
         setRefLoading(true);
         try {
-          const livePayload = await fetchLiveTree(requestedRef);
-          applyPayload(livePayload, true);
+          const livePayload = await fetchLiveTree(requestedRef.ref);
+          applyPayload(livePayload, true, requestedRef.paramKey);
+          syncUrlForRef(requestedRef.ref, requestedRef.paramKey);
         } catch (err) {
-          showRefError(`Couldn't load "${requestedRef}" (${err.message}). Showing cached main snapshot instead.`);
+          showRefError(`Couldn't load "${requestedRef.ref}" (${err.message}). Showing cached main snapshot instead.`);
         } finally {
           setRefLoading(false);
         }
@@ -1272,11 +1280,12 @@
     } catch (err) {
       const requestedRef = readRequestedRefFromUrl();
       if (requestedRef) {
-        document.getElementById("refInput").value = requestedRef;
+        document.getElementById("refInput").value = requestedRef.ref;
         setRefLoading(true);
         try {
-          const livePayload = await fetchLiveTree(requestedRef);
-          applyPayload(livePayload, true);
+          const livePayload = await fetchLiveTree(requestedRef.ref);
+          applyPayload(livePayload, true, requestedRef.paramKey);
+          syncUrlForRef(requestedRef.ref, requestedRef.paramKey);
         } catch (liveErr) {
           showRefError("Couldn't load the cached snapshot (" + err.message + ") or the requested ref (" + liveErr.message + ").");
         } finally {
