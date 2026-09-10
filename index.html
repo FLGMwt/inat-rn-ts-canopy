@@ -840,6 +840,8 @@
 
     const commit = await ghFetch(`https://api.github.com/repos/${REPO}/commits/${encodeURIComponent(ref)}`);
     const sha = commit.sha;
+    const treeSha = commit && commit.commit && commit.commit.tree && commit.commit.tree.sha;
+    if (!treeSha) throw new Error("Couldn't resolve that ref's tree.");
     const cachedPayload = getCachedPayloadBySha(sha);
     if (cachedPayload) {
       const payload = { ...cachedPayload, ref, sha };
@@ -847,7 +849,7 @@
       return { ...payload, _source: "local" };
     }
 
-    const treeData = await ghFetch(`https://api.github.com/repos/${REPO}/git/trees/${sha}?recursive=1`);
+    const treeData = await ghFetch(`https://api.github.com/repos/${REPO}/git/trees/${treeSha}?recursive=1`);
     const payload = buildLivePayload(ref, sha, treeData);
     storeLivePayload(ref, payload);
     return { ...payload, _source: "github" };
