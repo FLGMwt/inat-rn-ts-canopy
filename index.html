@@ -883,6 +883,8 @@
   let isLive = false;
   let liveSource = "default";
   let currentRefParamKey = "";
+  let lastRequestedRef = "";
+  let lastRequestedParamKey = "";
 
   function annotateTree(root) {
     allDirs = [];
@@ -1236,6 +1238,10 @@
     isLive = live;
     liveSource = live ? (payload._source || "github") : "default";
     currentRefParamKey = live ? (paramKey || (isFullSha(payload.ref) ? "sha" : "ref")) : "";
+    if (live) {
+      lastRequestedRef = payload.ref;
+      lastRequestedParamKey = currentRefParamKey;
+    }
     document.getElementById("refReset").hidden = !live;
 
     annotateTree(payload.tree);
@@ -1273,6 +1279,8 @@
     isLive = false;
     liveSource = "default";
     currentRefParamKey = "";
+    lastRequestedRef = "";
+    lastRequestedParamKey = "";
     expanded.clear();
     document.getElementById("statTotal").textContent = "";
     document.getElementById("statTs").textContent = "";
@@ -1300,7 +1308,7 @@
     if (!ref) return;
     const preferredParamKey = isFullSha(ref)
       ? "sha"
-      : (isLive && currentMeta && currentMeta.ref === ref && currentRefParamKey === "branch" ? "branch" : undefined);
+      : (lastRequestedRef === ref && lastRequestedParamKey === "branch" ? "branch" : undefined);
     setRefLoading(true);
     clearRefError();
     try {
@@ -1319,6 +1327,8 @@
   document.getElementById("refReset").addEventListener("click", () => {
     clearRefError();
     document.getElementById("refInput").value = "";
+    lastRequestedRef = "";
+    lastRequestedParamKey = "";
     syncUrlForRef("", "");
     init();
   });
@@ -1339,6 +1349,8 @@
           const payload = await fetchCachedDefault();
           applyPayload(payload, false);
           document.getElementById("refInput").value = requestedRef.ref;
+          lastRequestedRef = requestedRef.ref;
+          lastRequestedParamKey = requestedRef.paramKey;
           syncUrlForFailedRef(requestedRef.ref, requestedRef.paramKey);
           showRefError(`Couldn't load "${requestedRef.ref}" (${liveErr.message}). Showing the cached snapshot instead.`);
         } catch (cacheErr) {
@@ -1354,6 +1366,8 @@
       try {
         const payload = await fetchCachedDefault();
         applyPayload(payload, false);
+        lastRequestedRef = "";
+        lastRequestedParamKey = "";
       } catch (err) {
         clearRenderedState();
         showRefError("Couldn't load the cached snapshot (" + err.message + "). Paste a ref below to fetch live instead.");
