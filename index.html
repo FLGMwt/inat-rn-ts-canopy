@@ -836,7 +836,15 @@
     }
 
     const cachedRef = getFreshRefCache(ref);
-    if (cachedRef) return { ...cachedRef.payload, ref, sha: cachedRef.sha, _source: "local", _paramKey: cachedRef.paramKey };
+    if (cachedRef) {
+      return {
+        ...cachedRef.payload,
+        ref,
+        sha: cachedRef.sha,
+        _source: "local",
+        _paramKey: preferredParamKey || cachedRef.paramKey
+      };
+    }
 
     const commit = await ghFetch(`https://api.github.com/repos/${REPO}/commits/${encodeURIComponent(ref)}`);
     const sha = commit.sha;
