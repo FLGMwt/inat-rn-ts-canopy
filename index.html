@@ -715,9 +715,9 @@
     const entry = cache.refs[ref];
     if (!entry || !entry.sha || !entry.cachedAt) return null;
     if ((nowMs() - entry.cachedAt) > SYMBOLIC_REF_TTL_MS) return null;
-    const payloadEntry = cache.payloads[entry.sha];
-    if (!payloadEntry || !payloadEntry.payload) return null;
-    return { sha: entry.sha, payload: payloadEntry.payload };
+    const payload = getCachedPayloadBySha(entry.sha);
+    if (!payload) return null;
+    return { sha: entry.sha, payload };
   }
 
   function storeLivePayload(ref, payload) {
