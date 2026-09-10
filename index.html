@@ -602,6 +602,11 @@
   const EXT_RE = /\.(js|jsx|ts|tsx)$/;
   const SKIP_DIR_RE = /(^|\/)(__tests__|__mocks__|l10n|node_modules)(\/|$)/;
   const SKIP_FILE_RE = /\.(test|spec)\.|\.d\.ts$/;
+  const FULL_SHA_RE = /^[0-9a-f]{40}$/i;
+  const LOCAL_CACHE_KEY = "type-canopy-live-cache-v1";
+  const IMMUTABLE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  const SYMBOLIC_REF_TTL_MS = 10 * 60 * 1000;
+  const MAX_LOCAL_PAYLOADS = 6;
 
   const STOPS = [
     [0.00, [0x0c, 0xa3, 0x0c]],
@@ -657,6 +662,111 @@
     return res.json();
   }
 
+  function nowMs() {
+    return Date.now();
+  }
+
+  function isFullSha(ref) {
+    return FULL_SHA_RE.test(ref || "");
+  }
+
+  function readLocalCache() {
+    try {
+      const raw = localStorage.getItem(LOCAL_CACHE_KEY);
+      if (!raw) return { payloads: {}, refs: {} };
+      const parsed = JSON.parse(raw);
+      return {
+        payloads: parsed && parsed.payloads && typeof parsed.payloads === "object" ? parsed.payloads : {},
+        refs: parsed && parsed.refs && typeof parsed.refs === "object" ? parsed.refs : {},
+      };
+    } catch {
+      return { payloads: {}, refs: {} };
+    }
+  }
+
+  function writeLocalCache(cache) {
+    try {
+      localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cache));
+    } catch {}
+  }
+
+  function pruneLocalCache(cache) {
+    const entries = Object.entries(cache.payloads || {})
+      .filter(([, entry]) => entry && entry.payload && entry.cachedAt)
+      .sort((a, b) => b[1].cachedAt - a[1].cachedAt);
+    cache.payloads = Object.fromEntries(entries.slice(0, MAX_LOCAL_PAYLOADS));
+    const validShas = new Set(Object.keys(cache.payloads));
+    cache.refs = Object.fromEntries(
+      Object.entries(cache.refs || {}).filter(([, entry]) => entry && validShas.has(entry.sha))
+    );
+    return cache;
+  }
+
+  function getCachedPayloadBySha(sha) {
+    const cache = readLocalCache();
+    const entry = cache.payloads[sha];
+    if (!entry || !entry.payload || !entry.cachedAt) return null;
+    if ((nowMs() - entry.cachedAt) > IMMUTABLE_TTL_MS) return null;
+    return entry.payload;
+  }
+
+  function getFreshRefCache(ref) {
+    const cache = readLocalCache();
+    const entry = cache.refs[ref];
+    if (!entry || !entry.sha || !entry.cachedAt) return null;
+    if ((nowMs() - entry.cachedAt) > SYMBOLIC_REF_TTL_MS) return null;
+    const payloadEntry = cache.payloads[entry.sha];
+    if (!payloadEntry || !payloadEntry.payload) return null;
+    return { sha: entry.sha, payload: payloadEntry.payload };
+  }
+
+  function storeLivePayload(ref, payload) {
+    const cache = readLocalCache();
+    const cachedAt = nowMs();
+    cache.payloads[payload.sha] = { cachedAt, payload };
+    if (ref && !isFullSha(ref)) {
+      cache.refs[ref] = { sha: payload.sha, cachedAt };
+    }
+    writeLocalCache(pruneLocalCache(cache));
+  }
+
+  function buildLivePayload(ref, sha, treeData) {
+    const files = treeData.tree
+      .filter(item => item.type === "blob" && item.path.startsWith(SRC_PREFIX))
+      .filter(item => !SKIP_DIR_RE.test(item.path))
+      .filter(item => !SKIP_FILE_RE.test(item.path))
+      .map(item => {
+        const m = item.path.match(EXT_RE);
+        if (!m) return null;
+        const ext = "." + m[1];
+        return { path: item.path.slice(SRC_PREFIX.length), ext, isTs: ext === ".ts" || ext === ".tsx", size: item.size || 0 };
+      })
+      .filter(Boolean);
+    if (!files.length) throw new Error("No matching source files under src/ for that ref.");
+    return { repo: REPO, ref, sha, generatedAt: new Date().toISOString(), tree: buildTreeFromFiles("src", files) };
+  }
+
+  function readRequestedRefFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const sha = (params.get("sha") || "").trim();
+    if (sha) return sha;
+    const branch = (params.get("branch") || "").trim();
+    if (branch) return branch;
+    const ref = (params.get("ref") || "").trim();
+    return ref || "";
+  }
+
+  function syncUrlForRef(ref) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("sha");
+    url.searchParams.delete("branch");
+    url.searchParams.delete("ref");
+    if (ref) {
+      url.searchParams.set(isFullSha(ref) ? "sha" : "branch", ref);
+    }
+    history.replaceState(null, "", url);
+  }
+
   function buildTreeFromFiles(rootName, files) {
     function makeNode(name) { return { name, children: {}, files: [] }; }
     const root = makeNode(rootName);
@@ -683,22 +793,31 @@
   }
 
   async function fetchLiveTree(ref) {
+    if (isFullSha(ref)) {
+      const cachedPayload = getCachedPayloadBySha(ref);
+      if (cachedPayload) return { ...cachedPayload, ref };
+      const treeData = await ghFetch(`https://api.github.com/repos/${REPO}/git/trees/${ref}?recursive=1`);
+      const payload = buildLivePayload(ref, ref, treeData);
+      storeLivePayload(ref, payload);
+      return payload;
+    }
+
+    const cachedRef = getFreshRefCache(ref);
+    if (cachedRef) return { ...cachedRef.payload, ref, sha: cachedRef.sha };
+
     const commit = await ghFetch(`https://api.github.com/repos/${REPO}/commits/${encodeURIComponent(ref)}`);
     const sha = commit.sha;
+    const cachedPayload = getCachedPayloadBySha(sha);
+    if (cachedPayload) {
+      const payload = { ...cachedPayload, ref, sha };
+      storeLivePayload(ref, payload);
+      return payload;
+    }
+
     const treeData = await ghFetch(`https://api.github.com/repos/${REPO}/git/trees/${sha}?recursive=1`);
-    const files = treeData.tree
-      .filter(item => item.type === "blob" && item.path.startsWith(SRC_PREFIX))
-      .filter(item => !SKIP_DIR_RE.test(item.path))
-      .filter(item => !SKIP_FILE_RE.test(item.path))
-      .map(item => {
-        const m = item.path.match(EXT_RE);
-        if (!m) return null;
-        const ext = "." + m[1];
-        return { path: item.path.slice(SRC_PREFIX.length), ext, isTs: ext === ".ts" || ext === ".tsx", size: item.size || 0 };
-      })
-      .filter(Boolean);
-    if (!files.length) throw new Error("No matching source files under src/ for that ref.");
-    return { repo: REPO, ref, sha, generatedAt: new Date().toISOString(), tree: buildTreeFromFiles("src", files) };
+    const payload = buildLivePayload(ref, sha, treeData);
+    storeLivePayload(ref, payload);
+    return payload;
   }
 
   async function fetchCachedDefault() {
@@ -1115,6 +1234,7 @@
     try {
       const payload = await fetchLiveTree(ref);
       applyPayload(payload, true);
+      syncUrlForRef(ref);
     } catch (err) {
       showRefError(err.message);
     } finally {
@@ -1126,6 +1246,7 @@
   document.getElementById("refReset").addEventListener("click", () => {
     clearRefError();
     document.getElementById("refInput").value = "";
+    syncUrlForRef("");
     init();
   });
 
@@ -1133,8 +1254,35 @@
     try {
       const payload = await fetchCachedDefault();
       applyPayload(payload, false);
+      const requestedRef = readRequestedRefFromUrl();
+      if (requestedRef) {
+        document.getElementById("refInput").value = requestedRef;
+        setRefLoading(true);
+        try {
+          const livePayload = await fetchLiveTree(requestedRef);
+          applyPayload(livePayload, true);
+        } catch (err) {
+          showRefError(err.message + " Showing cached main snapshot instead.");
+        } finally {
+          setRefLoading(false);
+        }
+      }
     } catch (err) {
-      showRefError("Couldn't load the cached snapshot (" + err.message + "). Paste a ref below to fetch live instead.");
+      const requestedRef = readRequestedRefFromUrl();
+      if (requestedRef) {
+        document.getElementById("refInput").value = requestedRef;
+        setRefLoading(true);
+        try {
+          const livePayload = await fetchLiveTree(requestedRef);
+          applyPayload(livePayload, true);
+        } catch (liveErr) {
+          showRefError("Couldn't load the cached snapshot (" + err.message + ") or the requested ref (" + liveErr.message + ").");
+        } finally {
+          setRefLoading(false);
+        }
+      } else {
+        showRefError("Couldn't load the cached snapshot (" + err.message + "). Paste a ref below to fetch live instead.");
+      }
     }
   }
 
