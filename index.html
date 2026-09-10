@@ -822,19 +822,6 @@
     return finalize(root);
   }
 
-  async function resolveSymbolicParamKey(ref, fallbackParamKey) {
-    if (fallbackParamKey === "branch") return "branch";
-    const encodedRef = ref.split("/").map(part => encodeURIComponent(part)).join("/");
-    try {
-      const res = await fetch(`https://api.github.com/repos/${REPO}/git/ref/heads/${encodedRef}`, {
-        headers: { Accept: "application/vnd.github+json" }
-      });
-      if (res.ok) return "branch";
-      if (res.status === 404 || res.status === 422) return "ref";
-    } catch {}
-    return fallbackParamKey || "ref";
-  }
-
   async function fetchLiveTree(ref, preferredParamKey) {
     if (isFullSha(ref)) {
       const cachedPayload = getCachedPayloadBySha(ref);
@@ -855,7 +842,7 @@
     const sha = commit.sha;
     const treeSha = commit && commit.commit && commit.commit.tree && commit.commit.tree.sha;
     if (!treeSha) throw new Error("Couldn't resolve that ref's tree.");
-    const paramKey = await resolveSymbolicParamKey(ref, preferredParamKey);
+    const paramKey = preferredParamKey || "ref";
     const cachedPayload = getCachedPayloadBySha(sha);
     if (cachedPayload) {
       const payload = { ...cachedPayload, ref, sha };
