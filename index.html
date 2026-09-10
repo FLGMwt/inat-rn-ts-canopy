@@ -1264,7 +1264,7 @@
           const livePayload = await fetchLiveTree(requestedRef);
           applyPayload(livePayload, true);
         } catch (err) {
-          showRefError(err.message + " Showing cached main snapshot instead.");
+          showRefError(`Couldn't load "${requestedRef}" (${err.message}). Showing cached main snapshot instead.`);
         } finally {
           setRefLoading(false);
         }
