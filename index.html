@@ -589,7 +589,7 @@
 
   <footer>
     Excludes <span class="mono">__tests__</span>, <span class="mono">__mocks__</span>, <span class="mono">l10n</span>, and <span class="mono">.d.ts</span> files.
-    The cached view is regenerated daily by a scheduled GitHub Action; shared links can use <span class="mono">?branch=</span> or <span class="mono">?sha=</span>, with live ref results cached locally in your browser to reduce repeat GitHub API calls.
+    The cached view is regenerated daily by a scheduled GitHub Action; shared links can use <span class="mono">?branch=</span>, <span class="mono">?sha=</span>, or <span class="mono">?ref=</span>, with live ref results cached locally in your browser to reduce repeat GitHub API calls.
     <br>Source: <a href="https://github.com/FLGMwt/inat-rn-ts-canopy" target="_blank" rel="noopener">FLGMwt/inat-rn-ts-canopy</a>.
   </footer>
 </div>
@@ -762,7 +762,7 @@
     url.searchParams.delete("branch");
     url.searchParams.delete("ref");
     if (ref) {
-      url.searchParams.set(isFullSha(ref) ? "sha" : "branch", ref);
+      url.searchParams.set(isFullSha(ref) ? "sha" : "ref", ref);
     }
     history.replaceState(null, "", url);
   }
