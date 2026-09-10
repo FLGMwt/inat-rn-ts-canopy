@@ -1254,6 +1254,27 @@
     document.getElementById("refInput").disabled = loading;
     document.getElementById("refLoad").textContent = loading ? "Loading…" : "Load";
   }
+  function clearRenderedState() {
+    TREE_DATA = null;
+    allDirs = [];
+    stack = [];
+    query = "";
+    matchSet = null;
+    currentMeta = null;
+    isLive = false;
+    liveSource = "default";
+    currentRefParamKey = "";
+    expanded.clear();
+    document.getElementById("statTotal").textContent = "";
+    document.getElementById("statTs").textContent = "";
+    document.getElementById("statJs").textContent = "";
+    document.getElementById("refStatus").textContent = "";
+    document.getElementById("refReset").hidden = true;
+    document.getElementById("breadcrumb").innerHTML = "";
+    document.getElementById("board").innerHTML = "";
+    document.getElementById("stage").innerHTML = '<div class="loading-msg">Couldn’t load file tree.</div>';
+    document.getElementById("treeview").innerHTML = '<div class="loading-msg">Couldn’t load file tree.</div>';
+  }
   function showRefError(msg) {
     const el = document.getElementById("refError");
     el.textContent = msg;
@@ -1310,8 +1331,8 @@
           syncUrlForFailedRef(requestedRef.ref, requestedRef.paramKey);
           showRefError(`Couldn't load "${requestedRef.ref}" (${liveErr.message}). Showing the cached snapshot instead.`);
         } catch (cacheErr) {
+          clearRenderedState();
           document.getElementById("refInput").value = "";
-          document.getElementById("refReset").hidden = true;
           syncUrlForFailedRef("", "");
           showRefError("Couldn't load the requested ref (" + liveErr.message + ") or the cached snapshot (" + cacheErr.message + ").");
         }
@@ -1323,6 +1344,7 @@
         const payload = await fetchCachedDefault();
         applyPayload(payload, false);
       } catch (err) {
+        clearRenderedState();
         showRefError("Couldn't load the cached snapshot (" + err.message + "). Paste a ref below to fetch live instead.");
       }
     }
