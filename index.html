@@ -1291,40 +1291,33 @@
   });
 
   async function init() {
-    try {
-      const payload = await fetchCachedDefault();
-      applyPayload(payload, false);
-      const requestedRef = readRequestedRefFromUrl();
-      if (requestedRef) {
-        document.getElementById("refInput").value = requestedRef.ref;
-        setRefLoading(true);
+    const requestedRef = readRequestedRefFromUrl();
+    if (requestedRef) {
+      document.getElementById("refInput").value = requestedRef.ref;
+      setRefLoading(true);
+      clearRefError();
+      try {
+        const livePayload = await fetchLiveTree(requestedRef.ref);
+        applyPayload(livePayload, true, requestedRef.paramKey);
+        syncUrlForRef(requestedRef.ref, requestedRef.paramKey);
+      } catch (liveErr) {
         try {
-          const livePayload = await fetchLiveTree(requestedRef.ref);
-          applyPayload(livePayload, true, requestedRef.paramKey);
-          syncUrlForRef(requestedRef.ref, requestedRef.paramKey);
-        } catch (err) {
+          const payload = await fetchCachedDefault();
+          applyPayload(payload, false);
           document.getElementById("refInput").value = requestedRef.ref;
           syncUrlForFailedRef(requestedRef.ref, requestedRef.paramKey);
-          showRefError(`Couldn't load "${requestedRef.ref}" (${err.message}). Showing the cached snapshot instead.`);
-        } finally {
-          setRefLoading(false);
+          showRefError(`Couldn't load "${requestedRef.ref}" (${liveErr.message}). Showing the cached snapshot instead.`);
+        } catch (cacheErr) {
+          showRefError("Couldn't load the requested ref (" + liveErr.message + ") or the cached snapshot (" + cacheErr.message + ").");
         }
+      } finally {
+        setRefLoading(false);
       }
-    } catch (err) {
-      const requestedRef = readRequestedRefFromUrl();
-      if (requestedRef) {
-        document.getElementById("refInput").value = requestedRef.ref;
-        setRefLoading(true);
-        try {
-          const livePayload = await fetchLiveTree(requestedRef.ref);
-          applyPayload(livePayload, true, requestedRef.paramKey);
-          syncUrlForRef(requestedRef.ref, requestedRef.paramKey);
-        } catch (liveErr) {
-          showRefError("Couldn't load the cached snapshot (" + err.message + ") or the requested ref (" + liveErr.message + ").");
-        } finally {
-          setRefLoading(false);
-        }
-      } else {
+    } else {
+      try {
+        const payload = await fetchCachedDefault();
+        applyPayload(payload, false);
+      } catch (err) {
         showRefError("Couldn't load the cached snapshot (" + err.message + "). Paste a ref below to fetch live instead.");
       }
     }
