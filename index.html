@@ -604,6 +604,7 @@
   const SKIP_FILE_RE = /\.(test|spec)\.|\.d\.ts$/;
   const FULL_SHA_RE = /^[0-9a-f]{40}$/i;
   const LOCAL_CACHE_KEY = "type-canopy-live-cache-v1";
+  const LOCAL_CACHE_TEST_KEY = "type-canopy-live-cache-test";
   const IMMUTABLE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
   const SYMBOLIC_REF_TTL_MS = 10 * 60 * 1000;
   const MAX_LOCAL_PAYLOADS = 6;
@@ -670,7 +671,21 @@
     return FULL_SHA_RE.test(ref || "");
   }
 
+  let storageAvailable = null;
+  function hasUsableLocalStorage() {
+    if (storageAvailable !== null) return storageAvailable;
+    try {
+      localStorage.setItem(LOCAL_CACHE_TEST_KEY, "1");
+      localStorage.removeItem(LOCAL_CACHE_TEST_KEY);
+      storageAvailable = true;
+    } catch {
+      storageAvailable = false;
+    }
+    return storageAvailable;
+  }
+
   function readLocalCache() {
+    if (!hasUsableLocalStorage()) return { payloads: {}, refs: {} };
     try {
       const raw = localStorage.getItem(LOCAL_CACHE_KEY);
       if (!raw) return { payloads: {}, refs: {} };
@@ -685,6 +700,7 @@
   }
 
   function writeLocalCache(cache) {
+    if (!hasUsableLocalStorage()) return;
     try {
       localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cache));
     } catch {}
@@ -697,7 +713,12 @@
     cache.payloads = Object.fromEntries(entries.slice(0, MAX_LOCAL_PAYLOADS));
     const validShas = new Set(Object.keys(cache.payloads));
     cache.refs = Object.fromEntries(
-      Object.entries(cache.refs || {}).filter(([, entry]) => entry && validShas.has(entry.sha))
+      Object.entries(cache.refs || {}).filter(([, entry]) =>
+        entry &&
+        validShas.has(entry.sha) &&
+        typeof entry.cachedAt === "number" &&
+        (nowMs() - entry.cachedAt) <= SYMBOLIC_REF_TTL_MS
+      )
     );
     return cache;
   }
