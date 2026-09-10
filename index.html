@@ -1371,10 +1371,12 @@
           applyPayload(payload, false);
           document.getElementById("refInput").value = requestedRef.ref;
           lastRequestedRef = requestedRef.ref;
-          lastRequestedParamKey = requestedRef.paramKey;
-          syncUrlForFailedRef(requestedRef.ref, requestedRef.paramKey);
-          showRefError(`Couldn't load "${requestedRef.ref}" (${liveErr.message}). Showing the cached snapshot instead.`);
-        } catch (cacheErr) {
+        lastRequestedParamKey = isFullSha(requestedRef.ref)
+          ? "sha"
+          : (requestedRef.paramKey === "branch" ? "branch" : "ref");
+        syncUrlForFailedRef(requestedRef.ref, requestedRef.paramKey);
+        showRefError(`Couldn't load "${requestedRef.ref}" (${liveErr.message}). Showing the cached snapshot instead.`);
+      } catch (cacheErr) {
           clearRenderedState();
           document.getElementById("refInput").value = "";
           syncUrlForFailedRef("", "");
