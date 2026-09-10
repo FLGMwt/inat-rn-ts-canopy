@@ -589,7 +589,7 @@
 
   <footer>
     Excludes <span class="mono">__tests__</span>, <span class="mono">__mocks__</span>, <span class="mono">l10n</span>, and <span class="mono">.d.ts</span> files.
-    The cached view is regenerated daily by a scheduled GitHub Action; pasting a ref fetches live from the GitHub API (subject to its public rate limit of 60 requests/hour without auth).
+    The cached view is regenerated daily by a scheduled GitHub Action; shared links can use <span class="mono">?branch=</span>, <span class="mono">?sha=</span>, or <span class="mono">?ref=</span>, with live ref results cached locally in your browser to reduce repeat GitHub API calls.
     <br>Source: <a href="https://github.com/FLGMwt/inat-rn-ts-canopy" target="_blank" rel="noopener">FLGMwt/inat-rn-ts-canopy</a>.
   </footer>
 </div>
@@ -602,6 +602,12 @@
   const EXT_RE = /\.(js|jsx|ts|tsx)$/;
   const SKIP_DIR_RE = /(^|\/)(__tests__|__mocks__|l10n|node_modules)(\/|$)/;
   const SKIP_FILE_RE = /\.(test|spec)\.|\.d\.ts$/;
+  const FULL_SHA_RE = /^[0-9a-f]{40}$/i;
+  const LOCAL_CACHE_KEY = "type-canopy-live-cache-v1";
+  const LOCAL_CACHE_TEST_KEY = "type-canopy-live-cache-test";
+  const IMMUTABLE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  const SYMBOLIC_REF_TTL_MS = 10 * 60 * 1000;
+  const MAX_LOCAL_PAYLOADS = 6;
 
   const STOPS = [
     [0.00, [0x0c, 0xa3, 0x0c]],
@@ -657,6 +663,161 @@
     return res.json();
   }
 
+  function nowMs() {
+    return Date.now();
+  }
+
+  function isFullSha(ref) {
+    return FULL_SHA_RE.test(ref || "");
+  }
+
+  let storageAvailable = null;
+  function hasUsableLocalStorage() {
+    if (storageAvailable !== null) return storageAvailable;
+    try {
+      localStorage.setItem(LOCAL_CACHE_TEST_KEY, "1");
+      localStorage.removeItem(LOCAL_CACHE_TEST_KEY);
+      storageAvailable = true;
+    } catch {
+      storageAvailable = false;
+    }
+    return storageAvailable;
+  }
+
+  function readLocalCache() {
+    if (!hasUsableLocalStorage()) return { payloads: {}, refs: {} };
+    try {
+      const raw = localStorage.getItem(LOCAL_CACHE_KEY);
+      if (!raw) return { payloads: {}, refs: {} };
+      const parsed = JSON.parse(raw);
+      return {
+        payloads: parsed && parsed.payloads && typeof parsed.payloads === "object" ? parsed.payloads : {},
+        refs: parsed && parsed.refs && typeof parsed.refs === "object" ? parsed.refs : {},
+      };
+    } catch {
+      return { payloads: {}, refs: {} };
+    }
+  }
+
+  function writeLocalCache(cache) {
+    if (!hasUsableLocalStorage()) return;
+    try {
+      localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cache));
+    } catch {}
+  }
+
+  function pruneLocalCache(cache) {
+    const entries = Object.entries(cache.payloads || {})
+      .filter(([, entry]) => entry && entry.payload && typeof entry.cachedAt === "number" && (nowMs() - entry.cachedAt) <= IMMUTABLE_TTL_MS)
+      .sort((a, b) => b[1].cachedAt - a[1].cachedAt);
+    cache.payloads = Object.fromEntries(entries.slice(0, MAX_LOCAL_PAYLOADS));
+    const validShas = new Set(Object.keys(cache.payloads));
+    cache.refs = Object.fromEntries(
+      Object.entries(cache.refs || {}).filter(([, entry]) =>
+        entry &&
+        validShas.has(entry.sha) &&
+        typeof entry.cachedAt === "number" &&
+        (nowMs() - entry.cachedAt) <= SYMBOLIC_REF_TTL_MS
+      )
+    );
+    return cache;
+  }
+
+  function getCachedPayloadBySha(sha) {
+    const cache = readLocalCache();
+    const entry = cache.payloads[sha];
+    if (!entry || !entry.payload || typeof entry.cachedAt !== "number") return null;
+    if ((nowMs() - entry.cachedAt) > IMMUTABLE_TTL_MS) return null;
+    return entry.payload;
+  }
+
+  function getFreshRefCache(ref) {
+    const cache = readLocalCache();
+    const entry = cache.refs[ref];
+    if (!entry || !entry.sha || typeof entry.cachedAt !== "number") return null;
+    if ((nowMs() - entry.cachedAt) > SYMBOLIC_REF_TTL_MS) return null;
+    const payload = getCachedPayloadBySha(entry.sha);
+    if (!payload) return null;
+    return { sha: entry.sha, payload, paramKey: entry.paramKey || "ref" };
+  }
+
+  function storeLivePayload(ref, payload, paramKey) {
+    const cache = readLocalCache();
+    const cachedAt = nowMs();
+    cache.payloads[payload.sha] = { cachedAt, payload };
+    if (ref && !isFullSha(ref)) {
+      cache.refs[ref] = { sha: payload.sha, cachedAt, paramKey: paramKey || "ref" };
+    }
+    writeLocalCache(pruneLocalCache(cache));
+  }
+
+  function buildLivePayload(ref, sha, treeData) {
+    const files = treeData.tree
+      .filter(item => item.type === "blob" && item.path.startsWith(SRC_PREFIX))
+      .filter(item => !SKIP_DIR_RE.test(item.path))
+      .filter(item => !SKIP_FILE_RE.test(item.path))
+      .map(item => {
+        const m = item.path.match(EXT_RE);
+        if (!m) return null;
+        const ext = "." + m[1];
+        return { path: item.path.slice(SRC_PREFIX.length), ext, isTs: ext === ".ts" || ext === ".tsx", size: item.size || 0 };
+      })
+      .filter(Boolean);
+    if (!files.length) throw new Error("No matching source files under src/ for that ref.");
+    return { repo: REPO, ref, sha, generatedAt: new Date().toISOString(), tree: buildTreeFromFiles("src", files) };
+  }
+
+  function readRequestedRefFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const sha = (params.get("sha") || "").trim();
+    if (sha) return { ref: sha, paramKey: isFullSha(sha) ? "sha" : "ref" };
+    const branch = (params.get("branch") || "").trim();
+    if (branch) return { ref: branch, paramKey: "branch" };
+    const ref = (params.get("ref") || "").trim();
+    if (ref) return { ref, paramKey: "ref" };
+    const requestedRef = (params.get("requestedRef") || "").trim();
+    const requestedRefType = (params.get("requestedRefType") || "").trim();
+    if (requestedRef) {
+      return {
+        ref: requestedRef,
+        paramKey: requestedRefType === "branch" || requestedRefType === "sha" ? requestedRefType : "ref",
+      };
+    }
+    return null;
+  }
+
+  function syncUrlForRef(ref, paramKey) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("sha");
+    url.searchParams.delete("branch");
+    url.searchParams.delete("ref");
+    url.searchParams.delete("requestedRef");
+    url.searchParams.delete("requestedRefType");
+    url.searchParams.delete("fallback");
+    if (ref) {
+      const key = paramKey || (isFullSha(ref) ? "sha" : "ref");
+      url.searchParams.set(key, ref);
+    }
+    history.replaceState(null, "", url);
+  }
+
+  function syncUrlForFailedRef(ref, paramKey) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("sha");
+    url.searchParams.delete("branch");
+    url.searchParams.delete("ref");
+    if (ref) {
+      url.searchParams.set("requestedRef", ref);
+      url.searchParams.set("requestedRefType", paramKey || (isFullSha(ref) ? "sha" : "ref"));
+      url.searchParams.set("fallback", "cached");
+    } else {
+      url.searchParams.delete("requestedRef");
+      url.searchParams.delete("requestedRefType");
+      url.searchParams.delete("fallback");
+    }
+    history.replaceState(null, "", url);
+  }
+
   function buildTreeFromFiles(rootName, files) {
     function makeNode(name) { return { name, children: {}, files: [] }; }
     const root = makeNode(rootName);
@@ -682,23 +843,46 @@
     return finalize(root);
   }
 
-  async function fetchLiveTree(ref) {
+  async function fetchLiveTree(ref, preferredParamKey) {
+    if (isFullSha(ref)) {
+      const cachedPayload = getCachedPayloadBySha(ref);
+      if (cachedPayload) return { ...cachedPayload, ref, _source: "local", _paramKey: preferredParamKey || "sha" };
+      const commit = await ghFetch(`https://api.github.com/repos/${REPO}/commits/${encodeURIComponent(ref)}`);
+      const treeSha = commit && commit.commit && commit.commit.tree && commit.commit.tree.sha;
+      if (!treeSha) throw new Error("Couldn't resolve that commit's tree.");
+      const treeData = await ghFetch(`https://api.github.com/repos/${REPO}/git/trees/${treeSha}?recursive=1`);
+      const payload = buildLivePayload(ref, ref, treeData);
+      storeLivePayload(ref, payload, preferredParamKey || "sha");
+      return { ...payload, _source: "github", _paramKey: preferredParamKey || "sha" };
+    }
+
+    const cachedRef = getFreshRefCache(ref);
+    if (cachedRef) {
+      return {
+        ...cachedRef.payload,
+        ref,
+        sha: cachedRef.sha,
+        _source: "local",
+        _paramKey: preferredParamKey || cachedRef.paramKey
+      };
+    }
+
     const commit = await ghFetch(`https://api.github.com/repos/${REPO}/commits/${encodeURIComponent(ref)}`);
     const sha = commit.sha;
-    const treeData = await ghFetch(`https://api.github.com/repos/${REPO}/git/trees/${sha}?recursive=1`);
-    const files = treeData.tree
-      .filter(item => item.type === "blob" && item.path.startsWith(SRC_PREFIX))
-      .filter(item => !SKIP_DIR_RE.test(item.path))
-      .filter(item => !SKIP_FILE_RE.test(item.path))
-      .map(item => {
-        const m = item.path.match(EXT_RE);
-        if (!m) return null;
-        const ext = "." + m[1];
-        return { path: item.path.slice(SRC_PREFIX.length), ext, isTs: ext === ".ts" || ext === ".tsx", size: item.size || 0 };
-      })
-      .filter(Boolean);
-    if (!files.length) throw new Error("No matching source files under src/ for that ref.");
-    return { repo: REPO, ref, sha, generatedAt: new Date().toISOString(), tree: buildTreeFromFiles("src", files) };
+    const treeSha = commit && commit.commit && commit.commit.tree && commit.commit.tree.sha;
+    if (!treeSha) throw new Error("Couldn't resolve that ref's tree.");
+    const paramKey = preferredParamKey || "ref";
+    const cachedPayload = getCachedPayloadBySha(sha);
+    if (cachedPayload) {
+      const payload = { ...cachedPayload, ref, sha };
+      storeLivePayload(ref, payload, paramKey);
+      return { ...payload, _source: "local", _paramKey: paramKey };
+    }
+
+    const treeData = await ghFetch(`https://api.github.com/repos/${REPO}/git/trees/${treeSha}?recursive=1`);
+    const payload = buildLivePayload(ref, sha, treeData);
+    storeLivePayload(ref, payload, paramKey);
+    return { ...payload, _source: "github", _paramKey: paramKey };
   }
 
   async function fetchCachedDefault() {
@@ -718,6 +902,10 @@
   const expanded = new Set();
   let currentMeta = null;
   let isLive = false;
+  let liveSource = "default";
+  let currentRefParamKey = "";
+  let lastRequestedRef = "";
+  let lastRequestedParamKey = "";
 
   function annotateTree(root) {
     allDirs = [];
@@ -759,7 +947,7 @@
 
     el.append(isLive ? "Live from GitHub · " : "Cached snapshot · ", link, " @ ", shaEl);
     if (isLive) {
-      el.append(" · fetched just now");
+      el.append(liveSource === "local" ? " · loaded from local cache" : " · fetched just now");
     } else {
       const d = new Date(currentMeta.generatedAt);
       el.append(" · refreshed " + d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }));
@@ -1066,9 +1254,15 @@
   // ---------------------------------------------------------------------
   // Load orchestration
   // ---------------------------------------------------------------------
-  function applyPayload(payload, live) {
+  function applyPayload(payload, live, paramKey) {
     currentMeta = { repo: payload.repo, ref: payload.ref, sha: payload.sha, generatedAt: payload.generatedAt };
     isLive = live;
+    liveSource = live ? (payload._source || "github") : "default";
+    currentRefParamKey = live ? (paramKey || (isFullSha(payload.ref) ? "sha" : "ref")) : "";
+    if (live) {
+      lastRequestedRef = payload.ref;
+      lastRequestedParamKey = currentRefParamKey;
+    }
     document.getElementById("refReset").hidden = !live;
 
     annotateTree(payload.tree);
@@ -1096,6 +1290,29 @@
     document.getElementById("refInput").disabled = loading;
     document.getElementById("refLoad").textContent = loading ? "Loading…" : "Load";
   }
+  function clearRenderedState() {
+    TREE_DATA = null;
+    allDirs = [];
+    stack = [];
+    query = "";
+    matchSet = null;
+    currentMeta = null;
+    isLive = false;
+    liveSource = "default";
+    currentRefParamKey = "";
+    lastRequestedRef = "";
+    lastRequestedParamKey = "";
+    expanded.clear();
+    document.getElementById("statTotal").textContent = "";
+    document.getElementById("statTs").textContent = "";
+    document.getElementById("statJs").textContent = "";
+    document.getElementById("refStatus").textContent = "";
+    document.getElementById("refReset").hidden = true;
+    document.getElementById("breadcrumb").innerHTML = "";
+    document.getElementById("board").innerHTML = "";
+    document.getElementById("stage").innerHTML = '<div class="loading-msg">Couldn’t load file tree.</div>';
+    document.getElementById("treeview").innerHTML = '<div class="loading-msg">Couldn’t load file tree.</div>';
+  }
   function showRefError(msg) {
     const el = document.getElementById("refError");
     el.textContent = msg;
@@ -1110,11 +1327,16 @@
   async function loadRefFromInput() {
     const ref = document.getElementById("refInput").value.trim();
     if (!ref) return;
+    const preferredParamKey = isFullSha(ref)
+      ? "sha"
+      : (lastRequestedRef === ref && lastRequestedParamKey === "branch" ? "branch" : undefined);
     setRefLoading(true);
     clearRefError();
     try {
-      const payload = await fetchLiveTree(ref);
-      applyPayload(payload, true);
+      const payload = await fetchLiveTree(ref, preferredParamKey);
+      const paramKey = payload._paramKey || preferredParamKey || (isFullSha(ref) ? "sha" : "ref");
+      applyPayload(payload, true, paramKey);
+      syncUrlForRef(ref, paramKey);
     } catch (err) {
       showRefError(err.message);
     } finally {
@@ -1126,15 +1348,52 @@
   document.getElementById("refReset").addEventListener("click", () => {
     clearRefError();
     document.getElementById("refInput").value = "";
+    lastRequestedRef = "";
+    lastRequestedParamKey = "";
+    syncUrlForRef("", "");
     init();
   });
 
   async function init() {
-    try {
-      const payload = await fetchCachedDefault();
-      applyPayload(payload, false);
-    } catch (err) {
-      showRefError("Couldn't load the cached snapshot (" + err.message + "). Paste a ref below to fetch live instead.");
+    const requestedRef = readRequestedRefFromUrl();
+    if (requestedRef) {
+      document.getElementById("refInput").value = requestedRef.ref;
+      setRefLoading(true);
+      clearRefError();
+      try {
+        const livePayload = await fetchLiveTree(requestedRef.ref, requestedRef.paramKey);
+        const paramKey = livePayload._paramKey || requestedRef.paramKey;
+        applyPayload(livePayload, true, paramKey);
+        syncUrlForRef(requestedRef.ref, paramKey);
+      } catch (liveErr) {
+        try {
+        const payload = await fetchCachedDefault();
+        applyPayload(payload, false);
+        document.getElementById("refInput").value = requestedRef.ref;
+        lastRequestedRef = requestedRef.ref;
+        lastRequestedParamKey = requestedRef.paramKey;
+        currentRefParamKey = requestedRef.paramKey;
+        syncUrlForFailedRef(requestedRef.ref, requestedRef.paramKey);
+        showRefError(`Couldn't load "${requestedRef.ref}" (${liveErr.message}). Showing the cached snapshot instead.`);
+      } catch (cacheErr) {
+          clearRenderedState();
+          document.getElementById("refInput").value = "";
+          syncUrlForFailedRef("", "");
+          showRefError("Couldn't load the requested ref (" + liveErr.message + ") or the cached snapshot (" + cacheErr.message + ").");
+        }
+      } finally {
+        setRefLoading(false);
+      }
+    } else {
+      try {
+        const payload = await fetchCachedDefault();
+        applyPayload(payload, false);
+        lastRequestedRef = "";
+        lastRequestedParamKey = "";
+      } catch (err) {
+        clearRenderedState();
+        showRefError("Couldn't load the cached snapshot (" + err.message + "). Paste a ref below to fetch live instead.");
+      }
     }
   }
 
