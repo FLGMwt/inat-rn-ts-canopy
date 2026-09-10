@@ -589,7 +589,7 @@
 
   <footer>
     Excludes <span class="mono">__tests__</span>, <span class="mono">__mocks__</span>, <span class="mono">l10n</span>, and <span class="mono">.d.ts</span> files.
-    The cached view is regenerated daily by a scheduled GitHub Action; pasting a ref fetches live from the GitHub API (subject to its public rate limit of 60 requests/hour without auth).
+    The cached view is regenerated daily by a scheduled GitHub Action; shared links can use <span class="mono">?branch=</span> or <span class="mono">?sha=</span>, with live ref results cached locally in your browser to reduce repeat GitHub API calls.
     <br>Source: <a href="https://github.com/FLGMwt/inat-rn-ts-canopy" target="_blank" rel="noopener">FLGMwt/inat-rn-ts-canopy</a>.
   </footer>
 </div>
@@ -795,15 +795,15 @@
   async function fetchLiveTree(ref) {
     if (isFullSha(ref)) {
       const cachedPayload = getCachedPayloadBySha(ref);
-      if (cachedPayload) return { ...cachedPayload, ref };
+      if (cachedPayload) return { ...cachedPayload, ref, _source: "local" };
       const treeData = await ghFetch(`https://api.github.com/repos/${REPO}/git/trees/${ref}?recursive=1`);
       const payload = buildLivePayload(ref, ref, treeData);
       storeLivePayload(ref, payload);
-      return payload;
+      return { ...payload, _source: "github" };
     }
 
     const cachedRef = getFreshRefCache(ref);
-    if (cachedRef) return { ...cachedRef.payload, ref, sha: cachedRef.sha };
+    if (cachedRef) return { ...cachedRef.payload, ref, sha: cachedRef.sha, _source: "local" };
 
     const commit = await ghFetch(`https://api.github.com/repos/${REPO}/commits/${encodeURIComponent(ref)}`);
     const sha = commit.sha;
@@ -811,13 +811,13 @@
     if (cachedPayload) {
       const payload = { ...cachedPayload, ref, sha };
       storeLivePayload(ref, payload);
-      return payload;
+      return { ...payload, _source: "local" };
     }
 
     const treeData = await ghFetch(`https://api.github.com/repos/${REPO}/git/trees/${sha}?recursive=1`);
     const payload = buildLivePayload(ref, sha, treeData);
     storeLivePayload(ref, payload);
-    return payload;
+    return { ...payload, _source: "github" };
   }
 
   async function fetchCachedDefault() {
@@ -837,6 +837,7 @@
   const expanded = new Set();
   let currentMeta = null;
   let isLive = false;
+  let liveSource = "default";
 
   function annotateTree(root) {
     allDirs = [];
@@ -878,7 +879,7 @@
 
     el.append(isLive ? "Live from GitHub · " : "Cached snapshot · ", link, " @ ", shaEl);
     if (isLive) {
-      el.append(" · fetched just now");
+      el.append(liveSource === "local" ? " · loaded from local cache" : " · fetched just now");
     } else {
       const d = new Date(currentMeta.generatedAt);
       el.append(" · refreshed " + d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }));
@@ -1188,6 +1189,7 @@
   function applyPayload(payload, live) {
     currentMeta = { repo: payload.repo, ref: payload.ref, sha: payload.sha, generatedAt: payload.generatedAt };
     isLive = live;
+    liveSource = live ? (payload._source || "github") : "default";
     document.getElementById("refReset").hidden = !live;
 
     annotateTree(payload.tree);
