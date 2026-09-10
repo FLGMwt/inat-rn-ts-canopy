@@ -754,6 +754,14 @@
     if (branch) return { ref: branch, paramKey: "branch" };
     const ref = (params.get("ref") || "").trim();
     if (ref) return { ref, paramKey: "ref" };
+    const requestedRef = (params.get("requestedRef") || "").trim();
+    const requestedRefType = (params.get("requestedRefType") || "").trim();
+    if (requestedRef) {
+      return {
+        ref: requestedRef,
+        paramKey: requestedRefType === "branch" || requestedRefType === "sha" ? requestedRefType : "ref",
+      };
+    }
     return null;
   }
 
@@ -762,9 +770,29 @@
     url.searchParams.delete("sha");
     url.searchParams.delete("branch");
     url.searchParams.delete("ref");
+    url.searchParams.delete("requestedRef");
+    url.searchParams.delete("requestedRefType");
+    url.searchParams.delete("fallback");
     if (ref) {
       const key = isFullSha(ref) ? "sha" : (paramKey === "branch" ? "branch" : "ref");
       url.searchParams.set(key, ref);
+    }
+    history.replaceState(null, "", url);
+  }
+
+  function syncUrlForFailedRef(ref, paramKey) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("sha");
+    url.searchParams.delete("branch");
+    url.searchParams.delete("ref");
+    if (ref) {
+      url.searchParams.set("requestedRef", ref);
+      url.searchParams.set("requestedRefType", isFullSha(ref) ? "sha" : (paramKey === "branch" ? "branch" : "ref"));
+      url.searchParams.set("fallback", "cached");
+    } else {
+      url.searchParams.delete("requestedRef");
+      url.searchParams.delete("requestedRefType");
+      url.searchParams.delete("fallback");
     }
     history.replaceState(null, "", url);
   }
@@ -1272,6 +1300,7 @@
           applyPayload(livePayload, true, requestedRef.paramKey);
           syncUrlForRef(requestedRef.ref, requestedRef.paramKey);
         } catch (err) {
+          syncUrlForFailedRef(requestedRef.ref, requestedRef.paramKey);
           showRefError(`Couldn't load "${requestedRef.ref}" (${err.message}). Showing the cached snapshot instead.`);
         } finally {
           setRefLoading(false);
