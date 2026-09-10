@@ -717,15 +717,15 @@
     if ((nowMs() - entry.cachedAt) > SYMBOLIC_REF_TTL_MS) return null;
     const payload = getCachedPayloadBySha(entry.sha);
     if (!payload) return null;
-    return { sha: entry.sha, payload };
+    return { sha: entry.sha, payload, paramKey: entry.paramKey || "ref" };
   }
 
-  function storeLivePayload(ref, payload) {
+  function storeLivePayload(ref, payload, paramKey) {
     const cache = readLocalCache();
     const cachedAt = nowMs();
     cache.payloads[payload.sha] = { cachedAt, payload };
     if (ref && !isFullSha(ref)) {
-      cache.refs[ref] = { sha: payload.sha, cachedAt };
+      cache.refs[ref] = { sha: payload.sha, cachedAt, paramKey: paramKey || "ref" };
     }
     writeLocalCache(pruneLocalCache(cache));
   }
@@ -822,37 +822,51 @@
     return finalize(root);
   }
 
-  async function fetchLiveTree(ref) {
+  async function resolveSymbolicParamKey(ref, fallbackParamKey) {
+    if (fallbackParamKey === "branch") return "branch";
+    const encodedRef = ref.split("/").map(part => encodeURIComponent(part)).join("/");
+    try {
+      const res = await fetch(`https://api.github.com/repos/${REPO}/git/ref/heads/${encodedRef}`, {
+        headers: { Accept: "application/vnd.github+json" }
+      });
+      if (res.ok) return "branch";
+      if (res.status === 404 || res.status === 422) return "ref";
+    } catch {}
+    return fallbackParamKey || "ref";
+  }
+
+  async function fetchLiveTree(ref, preferredParamKey) {
     if (isFullSha(ref)) {
       const cachedPayload = getCachedPayloadBySha(ref);
-      if (cachedPayload) return { ...cachedPayload, ref, _source: "local" };
+      if (cachedPayload) return { ...cachedPayload, ref, _source: "local", _paramKey: preferredParamKey || "sha" };
       const commit = await ghFetch(`https://api.github.com/repos/${REPO}/commits/${encodeURIComponent(ref)}`);
       const treeSha = commit && commit.commit && commit.commit.tree && commit.commit.tree.sha;
       if (!treeSha) throw new Error("Couldn't resolve that commit's tree.");
       const treeData = await ghFetch(`https://api.github.com/repos/${REPO}/git/trees/${treeSha}?recursive=1`);
       const payload = buildLivePayload(ref, ref, treeData);
-      storeLivePayload(ref, payload);
-      return { ...payload, _source: "github" };
+      storeLivePayload(ref, payload, preferredParamKey || "sha");
+      return { ...payload, _source: "github", _paramKey: preferredParamKey || "sha" };
     }
 
     const cachedRef = getFreshRefCache(ref);
-    if (cachedRef) return { ...cachedRef.payload, ref, sha: cachedRef.sha, _source: "local" };
+    if (cachedRef) return { ...cachedRef.payload, ref, sha: cachedRef.sha, _source: "local", _paramKey: cachedRef.paramKey };
 
     const commit = await ghFetch(`https://api.github.com/repos/${REPO}/commits/${encodeURIComponent(ref)}`);
     const sha = commit.sha;
     const treeSha = commit && commit.commit && commit.commit.tree && commit.commit.tree.sha;
     if (!treeSha) throw new Error("Couldn't resolve that ref's tree.");
+    const paramKey = await resolveSymbolicParamKey(ref, preferredParamKey);
     const cachedPayload = getCachedPayloadBySha(sha);
     if (cachedPayload) {
       const payload = { ...cachedPayload, ref, sha };
-      storeLivePayload(ref, payload);
-      return { ...payload, _source: "local" };
+      storeLivePayload(ref, payload, paramKey);
+      return { ...payload, _source: "local", _paramKey: paramKey };
     }
 
     const treeData = await ghFetch(`https://api.github.com/repos/${REPO}/git/trees/${treeSha}?recursive=1`);
     const payload = buildLivePayload(ref, sha, treeData);
-    storeLivePayload(ref, payload);
-    return { ...payload, _source: "github" };
+    storeLivePayload(ref, payload, paramKey);
+    return { ...payload, _source: "github", _paramKey: paramKey };
   }
 
   async function fetchCachedDefault() {
@@ -1289,13 +1303,14 @@
   async function loadRefFromInput() {
     const ref = document.getElementById("refInput").value.trim();
     if (!ref) return;
-    const paramKey = isFullSha(ref)
+    const preferredParamKey = isFullSha(ref)
       ? "sha"
-      : (isLive && currentMeta && currentMeta.ref === ref && currentRefParamKey === "branch" ? "branch" : "ref");
+      : (isLive && currentMeta && currentMeta.ref === ref && currentRefParamKey === "branch" ? "branch" : undefined);
     setRefLoading(true);
     clearRefError();
     try {
-      const payload = await fetchLiveTree(ref);
+      const payload = await fetchLiveTree(ref, preferredParamKey);
+      const paramKey = payload._paramKey || preferredParamKey || (isFullSha(ref) ? "sha" : "ref");
       applyPayload(payload, true, paramKey);
       syncUrlForRef(ref, paramKey);
     } catch (err) {
@@ -1320,9 +1335,10 @@
       setRefLoading(true);
       clearRefError();
       try {
-        const livePayload = await fetchLiveTree(requestedRef.ref);
-        applyPayload(livePayload, true, requestedRef.paramKey);
-        syncUrlForRef(requestedRef.ref, requestedRef.paramKey);
+        const livePayload = await fetchLiveTree(requestedRef.ref, requestedRef.paramKey);
+        const paramKey = livePayload._paramKey || requestedRef.paramKey;
+        applyPayload(livePayload, true, paramKey);
+        syncUrlForRef(requestedRef.ref, paramKey);
       } catch (liveErr) {
         try {
           const payload = await fetchCachedDefault();
