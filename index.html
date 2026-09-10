@@ -770,7 +770,7 @@
   function readRequestedRefFromUrl() {
     const params = new URLSearchParams(window.location.search);
     const sha = (params.get("sha") || "").trim();
-    if (sha) return { ref: sha, paramKey: "sha" };
+    if (sha) return { ref: sha, paramKey: isFullSha(sha) ? "sha" : "ref" };
     const branch = (params.get("branch") || "").trim();
     if (branch) return { ref: branch, paramKey: "branch" };
     const ref = (params.get("ref") || "").trim();
@@ -1367,13 +1367,11 @@
         syncUrlForRef(requestedRef.ref, paramKey);
       } catch (liveErr) {
         try {
-          const payload = await fetchCachedDefault();
-          applyPayload(payload, false);
-          document.getElementById("refInput").value = requestedRef.ref;
-          lastRequestedRef = requestedRef.ref;
-        lastRequestedParamKey = isFullSha(requestedRef.ref)
-          ? "sha"
-          : (requestedRef.paramKey === "branch" ? "branch" : "ref");
+        const payload = await fetchCachedDefault();
+        applyPayload(payload, false);
+        document.getElementById("refInput").value = requestedRef.ref;
+        lastRequestedRef = requestedRef.ref;
+        lastRequestedParamKey = requestedRef.paramKey;
         syncUrlForFailedRef(requestedRef.ref, requestedRef.paramKey);
         showRefError(`Couldn't load "${requestedRef.ref}" (${liveErr.message}). Showing the cached snapshot instead.`);
       } catch (cacheErr) {
