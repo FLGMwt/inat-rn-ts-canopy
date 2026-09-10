@@ -1372,6 +1372,7 @@
         document.getElementById("refInput").value = requestedRef.ref;
         lastRequestedRef = requestedRef.ref;
         lastRequestedParamKey = requestedRef.paramKey;
+        currentRefParamKey = requestedRef.paramKey;
         syncUrlForFailedRef(requestedRef.ref, requestedRef.paramKey);
         showRefError(`Couldn't load "${requestedRef.ref}" (${liveErr.message}). Showing the cached snapshot instead.`);
       } catch (cacheErr) {
