@@ -826,7 +826,7 @@
     if (isFullSha(ref)) {
       const cachedPayload = getCachedPayloadBySha(ref);
       if (cachedPayload) return { ...cachedPayload, ref, _source: "local" };
-      const commit = await ghFetch(`https://api.github.com/repos/${REPO}/commits/${ref}`);
+      const commit = await ghFetch(`https://api.github.com/repos/${REPO}/commits/${encodeURIComponent(ref)}`);
       const treeSha = commit && commit.commit && commit.commit.tree && commit.commit.tree.sha;
       if (!treeSha) throw new Error("Couldn't resolve that commit's tree.");
       const treeData = await ghFetch(`https://api.github.com/repos/${REPO}/git/trees/${treeSha}?recursive=1`);
