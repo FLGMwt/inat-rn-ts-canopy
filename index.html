@@ -774,7 +774,7 @@
     url.searchParams.delete("requestedRefType");
     url.searchParams.delete("fallback");
     if (ref) {
-      const key = isFullSha(ref) ? "sha" : (paramKey === "branch" ? "branch" : "ref");
+      const key = paramKey || (isFullSha(ref) ? "sha" : "ref");
       url.searchParams.set(key, ref);
     }
     history.replaceState(null, "", url);
@@ -787,7 +787,7 @@
     url.searchParams.delete("ref");
     if (ref) {
       url.searchParams.set("requestedRef", ref);
-      url.searchParams.set("requestedRefType", isFullSha(ref) ? "sha" : (paramKey === "branch" ? "branch" : "ref"));
+      url.searchParams.set("requestedRefType", paramKey || (isFullSha(ref) ? "sha" : "ref"));
       url.searchParams.set("fallback", "cached");
     } else {
       url.searchParams.delete("requestedRef");
@@ -826,7 +826,10 @@
     if (isFullSha(ref)) {
       const cachedPayload = getCachedPayloadBySha(ref);
       if (cachedPayload) return { ...cachedPayload, ref, _source: "local" };
-      const treeData = await ghFetch(`https://api.github.com/repos/${REPO}/git/trees/${ref}?recursive=1`);
+      const commit = await ghFetch(`https://api.github.com/repos/${REPO}/commits/${ref}`);
+      const treeSha = commit && commit.commit && commit.commit.tree && commit.commit.tree.sha;
+      if (!treeSha) throw new Error("Couldn't resolve that commit's tree.");
+      const treeData = await ghFetch(`https://api.github.com/repos/${REPO}/git/trees/${treeSha}?recursive=1`);
       const payload = buildLivePayload(ref, ref, treeData);
       storeLivePayload(ref, payload);
       return { ...payload, _source: "github" };
